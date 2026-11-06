@@ -1,0 +1,9 @@
+{
+    "manifest_version": 3,
+    "name": "NudgeCode",
+    "description": "Spoiler-free AI hints for LeetCode",
+    "version": "1.0",
+    "permissions": ["activeTab", "scripting"],
+    "host_permissions": ["https://leetcode.com/*", "http://localhost:5000/*"],
+    "action": { "default_popup": "popup.html" }
+}
