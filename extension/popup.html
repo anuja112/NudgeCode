@@ -1,9 +1,27 @@
 <!DOCTYPE html>
 <html>
+<head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="popup.css" />
+</head>
 <body style="width:320px;font-family:sans-serif;padding:12px">
-    <h3>NudgeCode</h3>
-    <button id="hintBtn">Get hint</button>
-    <p id="output"></p>
+    <header>
+    <h1>Nudge<span>Code</span></h1>
+    <p id="problem">Detecting problem...</p>
+    </header>
+
+    <textarea id="approach" rows="2" placeholder="Optional: describe your current approach and I'll check your thinking..."></textarea>
+
+    <nav class="tabs">
+    <button class="tab" data-level="1">1 · Nudge</button>
+    <button class="tab" data-level="2">2 · Direction</button>
+    <button class="tab" data-level="3">3 · Blueprint</button>
+    </nav>
+
+    <div id="status"></div>
+    <div id="panel"></div>
+
+    <footer><button id="reset" class="link">Reset hints for this problem</button></footer>
     <script src="popup.js"></script>
 </body>
 </html>
