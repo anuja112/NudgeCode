@@ -55,7 +55,7 @@ function parseHint(raw = "") {
   return { key, points: points.slice(0, 3) };
 }
 
-// ---------- rate limiter: 20 requests / minute / IP ----------
+
 const hits = new Map();
 function rateLimit(req, res, next) {
   const now = Date.now();
@@ -68,7 +68,7 @@ function rateLimit(req, res, next) {
   next();
 }
 
-// ---------- auto-pick a model your key can actually use ----------
+
 const PREFERRED = [
   process.env.MODEL,
   "llama-3.3-70b-versatile",
