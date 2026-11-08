@@ -3,12 +3,24 @@ import express from "express";
 import cors from "cors";
 import Groq from "groq-sdk";
 
+const { GROQ_API_KEY, PORT = 5000 } = process.env;
+
+if (!GROQ_API_KEY) {
+  console.error("Missing GROQ_API_KEY. Add it to backend/.env");
+  process.exit(1);
+}
+
 const app = express();
-app.use(cors());
-app.use(express.json());
+app.use(
+  cors({
+    origin: (origin, cb) => cb(null, !origin || origin.startsWith("chrome-extension://")),
+  })
+);
+app.use(express.json({ limit: "100kb" }));
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = new Groq({ apiKey: GROQ_API_KEY });
 
+// ---------- hint ladder ----------
 const LEVELS = {
   1: { name: "Nudge", guide: "Intuition only. Write 2-3 short guiding QUESTIONS about what the problem really asks. Do not describe any method." },
   2: { name: "Direction", guide: "Give ONE key observation about the problem's structure and why it helps. Do NOT describe a method or steps." },
@@ -43,11 +55,51 @@ function parseHint(raw = "") {
   return { key, points: points.slice(0, 3) };
 }
 
-app.get("/health", (req, res) => res.json({ ok: true }));
 
-app.post("/api/hint", async (req, res) => {
+const hits = new Map();
+function rateLimit(req, res, next) {
+  const now = Date.now();
+  const recent = (hits.get(req.ip) || []).filter((t) => now - t < 60_000);
+  if (recent.length >= 20) {
+    return res.status(429).json({ error: "Slow down - try again in a minute." });
+  }
+  recent.push(now);
+  hits.set(req.ip, recent);
+  next();
+}
+
+
+const PREFERRED = [
+  process.env.MODEL,
+  "llama-3.3-70b-versatile",
+  "openai/gpt-oss-20b",
+  "openai/gpt-oss-120b",
+  "llama-3.1-8b-instant",
+].filter(Boolean);
+
+let MODEL = null;
+async function pickModel() {
+  const { data } = await groq.models.list();
+  const ids = data.map((m) => m.id);
+  MODEL =
+    PREFERRED.find((id) => ids.includes(id)) ||
+    ids.find((id) => !/whisper|guard|safeguard|tts|orpheus|embed|allam/i.test(id));
+  if (!MODEL) throw new Error("No chat model available.");
+  console.log(`Using model: ${MODEL}`);
+}
+
+// ---------- routes ----------
+app.get("/health", (req, res) => res.json({ ok: true, model: MODEL }));
+
+app.post("/api/hint", rateLimit, async (req, res) => {
   try {
-    const { problemTitle, problemDescription, difficulty = "Unknown", userApproach = "", previousHints = [] } = req.body;
+    const {
+      problemTitle,
+      problemDescription,
+      difficulty = "Unknown",
+      userApproach = "",
+      previousHints = [],
+    } = req.body;
 
     if (!problemTitle || !problemDescription) {
       return res.status(400).json({ error: "Missing problem title or description." });
@@ -60,14 +112,22 @@ app.post("/api/hint", async (req, res) => {
       `Problem: ${String(problemTitle).slice(0, 200)} (${String(difficulty).slice(0, 20)})`,
       `Description:\n${String(problemDescription).slice(0, 4000)}`,
       prior.length ? `Hints already given (do not repeat them):\n${prior.join("\n---\n")}` : "",
-      String(userApproach).trim() ? `Student's current approach:\n${String(userApproach).slice(0, 800)}` : "",
+      String(userApproach).trim()
+        ? `Student's current approach:\n${String(userApproach).slice(0, 800)}`
+        : "",
       `Hint level ${level} (${LEVELS[level].name}): ${LEVELS[level].guide}`,
-    ].filter(Boolean).join("\n\n");
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (!MODEL) await pickModel();
 
     const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
+      model: MODEL,
       temperature: 0.4,
       max_tokens: 1500,
+      // gpt-oss models "think" first; keep that short so tokens go to the answer
+      ...(MODEL.startsWith("openai/gpt-oss") && { reasoning_effort: "low" }),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
@@ -85,8 +145,16 @@ app.post("/api/hint", async (req, res) => {
     res.json({ hintLevel: level, key, points });
   } catch (err) {
     console.error("HINT ERROR:", err.message);
+    if (err.status === 404) MODEL = null; // model vanished, re-pick next request
     res.status(500).json({ error: "The mentor is unavailable right now." });
   }
 });
 
-app.listen(5000, () => console.log("API on http://localhost:5000"));
+app.listen(PORT, async () => {
+  console.log(`API on http://localhost:${PORT}`);
+  try {
+    await pickModel();
+  } catch (err) {
+    console.error("Could not list models yet:", err.message);
+  }
+});
