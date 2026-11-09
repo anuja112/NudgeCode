@@ -6,7 +6,9 @@ NudgeCode is a Chrome extension that reads your open LeetCode problem and provid
 
 ## Preview
 
-![NudgeCode popup showing a hint](preview/popup.png)
+![NudgeCode popup showing Hint 1](preview/popup.png)
+
+![NudgeCode popup showing Hint 2](preview/popup2.png)
 
 ## Features
 
