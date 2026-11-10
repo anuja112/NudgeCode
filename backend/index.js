@@ -6,7 +6,7 @@ import Groq from "groq-sdk";
 const { GROQ_API_KEY, PORT = 5000 } = process.env;
 
 if (!GROQ_API_KEY) {
-  console.error("Missing GROQ_API_KEY. Add it to backend/.env");
+  console.error("Missing GROQ_API_KEY. Copy .env.example to .env and add your key.");
   process.exit(1);
 }
 
@@ -20,28 +20,40 @@ app.use(express.json({ limit: "100kb" }));
 
 const groq = new Groq({ apiKey: GROQ_API_KEY });
 
-// ---------- hint ladder ----------
+//hint ladder
 const LEVELS = {
-  1: { name: "Nudge", guide: "Intuition only. Write 2-3 short guiding QUESTIONS about what the problem really asks. Do not describe any method." },
-  2: { name: "Direction", guide: "Give ONE key observation about the problem's structure and why it helps. Do NOT describe a method or steps." },
-  3: { name: "Blueprint", guide: "Give at most 3 ordered steps in plain English plus ONE edge case. No code, no named technique." },
+  1: {
+    name: "Nudge",
+    guide:
+      "Intuition only. Write 2-3 short guiding QUESTIONS about what the problem really asks and what could be noticed. Do not describe any method.",},
+  2: {
+    name: "Direction",
+    guide:
+      "Give ONE key observation about the problem's structure or what is worth tracking, and why it helps. Do NOT describe a method, steps, or how to search. Build on the previous hint without repeating it.",},
+  3: {
+    name: "Blueprint",
+    guide:
+      "Give at most 3 ordered steps in plain English, plus ONE tricky edge case to test. No code, no named technique. Build on the previous hints without repeating them.",},
 };
 
-const SYSTEM_PROMPT = `You are NudgeCode, a patient DSA mentor.
+const SYSTEM_PROMPT = `You are NudgeCode, a patient DSA mentor helping a student think through a LeetCode problem.
 
-STRICT RULES:
-- Never write code. Never give the full solution.
+STRICT RULES (never break these):
+- Never write code or pseudocode with syntax.
+- Never give the full solution.
 - Never name the algorithm or data structure that solves it.
 - Never state time or space complexity.
 
-OUTPUT FORMAT (exactly, nothing else):
-KEY: <one sentence, max 20 words>
+OUTPUT FORMAT (follow exactly, nothing else):
+KEY: <one sentence, max 20 words, the single most important idea>
 - <bullet, max 20 words>
 - <bullet, max 20 words>
 - <bullet, max 20 words>
 
-Wrap the 1-3 most important words of each bullet in **double asterisks**.
-If the student shared their approach, say what is right about it first, then gently point out flaws without fixing them.`;
+FORMAT RULES:
+- Maximum 3 bullets. Short and specific to THIS problem.
+- In each bullet, wrap the 1-3 most important words in **double asterisks**.
+- If the student shared their approach, use the first bullet to say what is right about it and gently point out any flaw without fixing it for them.`;
 
 function parseHint(raw = "") {
   const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
@@ -61,7 +73,7 @@ function rateLimit(req, res, next) {
   const now = Date.now();
   const recent = (hits.get(req.ip) || []).filter((t) => now - t < 60_000);
   if (recent.length >= 20) {
-    return res.status(429).json({ error: "Slow down - try again in a minute." });
+    return res.status(429).json({error: "Slow down a little - try again in a minute."});
   }
   recent.push(now);
   hits.set(req.ip, recent);
@@ -83,13 +95,13 @@ async function pickModel() {
   const ids = data.map((m) => m.id);
   MODEL =
     PREFERRED.find((id) => ids.includes(id)) ||
-    ids.find((id) => !/whisper|guard|safeguard|tts|orpheus|embed|allam/i.test(id));
-  if (!MODEL) throw new Error("No chat model available.");
+    ids.find((id) => !/whisper|guard|tts|orpheus|embed/i.test(id));
+  if (!MODEL) throw new Error("No chat model available no this Groq key.");
   console.log(`Using model: ${MODEL}`);
 }
 
-// ---------- routes ----------
-app.get("/health", (req, res) => res.json({ ok: true, model: MODEL }));
+//routes
+app.get("/health", (_req, res) => res.json({ ok: true, model: MODEL }));
 
 app.post("/api/hint", rateLimit, async (req, res) => {
   try {
@@ -121,13 +133,14 @@ app.post("/api/hint", rateLimit, async (req, res) => {
       .join("\n\n");
 
     if (!MODEL) await pickModel();
+    
+    const isReasoning = MODEL.startsWith("openai/gpt-oss");
 
     const completion = await groq.chat.completions.create({
       model: MODEL,
       temperature: 0.4,
       max_tokens: 1500,
-      // gpt-oss models "think" first; keep that short so tokens go to the answer
-      ...(MODEL.startsWith("openai/gpt-oss") && { reasoning_effort: "low" }),
+      ...(isReasoning && { reasoning_effort: "low" }),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userPrompt },
@@ -145,13 +158,13 @@ app.post("/api/hint", rateLimit, async (req, res) => {
     res.json({ hintLevel: level, key, points });
   } catch (err) {
     console.error("HINT ERROR:", err.message);
-    if (err.status === 404) MODEL = null; // model vanished, re-pick next request
-    res.status(500).json({ error: "The mentor is unavailable right now." });
+    if (err.status === 404) MODEL = null; 
+    res.status(500).json({ error: "The mentor is unavailable right now. Check your API key or try again." });
   }
 });
 
 app.listen(PORT, async () => {
-  console.log(`API on http://localhost:${PORT}`);
+  console.log(`NudgeCode API running on http://localhost:${PORT}`);
   try {
     await pickModel();
   } catch (err) {
