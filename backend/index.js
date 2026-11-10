@@ -63,12 +63,12 @@ function parseHint(raw = "") {
     if (/^key\s*:/i.test(line)) key = line.replace(/^key\s*:\s*/i, "");
     else points.push(line.replace(/^\s*(?:[-•*]\s+|\d+[.)]\s+)/, ""));
   }
-  if (!key && points.length) key = points.shift();
+  if (!key && points.length) key = points.shift(); //remove the first point to key , if key not present
   return { key, points: points.slice(0, 3) };
 }
 
 
-const hits = new Map();
+const hits = new Map(); //it stores the request history for different IP addresses
 function rateLimit(req, res, next) {
   const now = Date.now();
   const recent = (hits.get(req.ip) || []).filter((t) => now - t < 60_000);
@@ -135,7 +135,7 @@ app.post("/api/hint", rateLimit, async (req, res) => {
     if (!MODEL) await pickModel();
     
     const isReasoning = MODEL.startsWith("openai/gpt-oss");
-
+    //sending request to groq api
     const completion = await groq.chat.completions.create({
       model: MODEL,
       temperature: 0.4,
@@ -146,19 +146,19 @@ app.post("/api/hint", rateLimit, async (req, res) => {
         { role: "user", content: userPrompt },
       ],
     });
-
+    //getting the ai response
     const raw = completion.choices[0].message.content || "";
     const { key, points } = parseHint(raw);
 
     if (!key || points.length === 0) {
       console.error("BAD MODEL OUTPUT:", JSON.stringify(raw));
       return res.status(502).json({ error: "Unreadable answer. Click Regenerate." });
-    }
+    }-
 
     res.json({ hintLevel: level, key, points });
   } catch (err) {
     console.error("HINT ERROR:", err.message);
-    if (err.status === 404) MODEL = null; 
+    if (err.status === 404) MODEL = null;
     res.status(500).json({ error: "The mentor is unavailable right now. Check your API key or try again." });
   }
 });
